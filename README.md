@@ -52,8 +52,6 @@ uv run python examples/agent_with_reflection.py
 
 ## 设计哲学
 
-详见 [docs/design.md](docs/design.md)(如果你写了)。
-
 核心思想:
 1. **不要 fork 修改 SDK 源码**——官方提供了 `CriticBase` 抽象基类、`Hooks` 系统、`agent_state` 字段三个扩展点,优雅地用它们
 2. **承认官方有 Critic**(`APIBasedCritic`),但聚焦差异化价值:provider-agnostic + Reflexion 范式
