@@ -1,6 +1,6 @@
 # OpenHands V1 SDK Reflexion 扩展
 
-基于 [OpenHands V1 SDK](https://github.com/OpenHands/software-agent-sdk)(SWE-bench 77.6 SOTA Coding Agent)的非侵入式扩展,实现 Reflexion 论文的 verbal reinforcement learning 机制。
+基于 [OpenHands V1 SDK](https://github.com/OpenHands/software-agent-sdk)的非侵入式扩展,实现 Reflexion 论文的 verbal reinforcement learning 机制。
 
 ## 核心特性
 
