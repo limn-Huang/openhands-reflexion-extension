@@ -67,6 +67,44 @@ uv run python examples/agent_with_reflection.py
 - **SDK 类型严格性**:`LLM.completion()` 接收的是原生 `Message + TextContent` 对象,传 dict 会报 `'dict' object has no attribute 'to_chat_dict'`
 - **过宽容 fallback 反模式**:Critic 失败时静默返回 0.5 score 会触发"虚假反思循环",必须显眼日志 + 报警
 
+## 📊 Benchmark 报告
+
+### 实验设计
+- **目的**:量化 ReflexionCritic 在 OpenHands V1 SDK 上的真实价值与成本
+- **任务**:7 个 coding 任务(从 easy 到 hard,包含精心设计的 silent failure / edge case trap)
+- **LLM**:GLM-5.1(智谱,强制思考模型)
+- **配置**:`success_threshold=0.7`, `max_iterations=3`
+- **验证方式**:每任务定义 `verify_command`,跑真实命令验证 Agent 输出
+
+### 核心结果
+
+| 指标 | Baseline | With Reflexion | Delta |
+|---|---|---|---|
+| Pass@1 | 100% | 100% | +0 pp |
+| 平均耗时 | 21.1s | 36.2s | **+72%** |
+| 平均 Token | 23,070 | 27,959 | **+21%** |
+
+### 关键发现
+
+1. **GLM-5.1 思考模型边际收益结构性偏低**:模型内部 reasoning 阶段已隐含 self-reflection,外部 Reflexion 在简单任务上无显著提升
+2. **Reflexion 不是免费午餐**:即使不触发迭代,Critic 评估仍带来 +21% Token 成本
+3. **自适应策略建议**:生产环境应根据任务复杂度有条件启用,而非默认全开
+
+完整报告详见 [`benchmark/REPORT.md`](benchmark/REPORT.md)。
+
+### 实验复现
+
+```bash
+# 跑单任务
+uv run python -m benchmark.runner --task task_h1 --mode with_reflexion
+
+# 批量跑所有任务
+uv run python -m benchmark.run_all
+
+# 生成对比报告
+uv run python -m benchmark.analyze
+```
+
 ## License
 
 MIT
