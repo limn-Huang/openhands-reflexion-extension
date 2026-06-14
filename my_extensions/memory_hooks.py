@@ -5,15 +5,6 @@ Memory Hooks —— 把 SummaryMemory 集成到 OpenHands Conversation。
 - 提供 maybe_compress_history() 函数,在 example 主循环里手动调用
 - 函数检查 EventLog 长度,超过阈值就触发 SummaryMemory.compress()
 - 压缩后的 summary 存到 state.agent_state["summary_memory"]
-
-为什么先做被动?
-1. SDK 主动 Hook 接口需要研究 openhands.sdk.hooks 模块
-2. 被动调用更容易调试和理解
-3. Day 6 时间足够再升级到自动 Hook 注册
-
-未来升级方向(写在 docstring 是给自己的 TODO):
-- 用 PostToolUse Hook 自动触发
-- 集成 PreToolUse Hook 在 prompt 构建时注入 summary 替换早期事件
 """
 
 import logging
