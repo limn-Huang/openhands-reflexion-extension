@@ -1,16 +1,6 @@
 """
 SummaryMemory —— 把 EventLog 历史压缩成简短摘要,缓解 context 膨胀。
 
-为什么不直接删 EventLog 里的 event?
-1. EventLog 是审计日志,设计上不该被破坏(可重放、可调试、可恢复)
-2. OpenHands 用 FIFOLock 保护 EventLog,直接改它有并发风险
-3. 删了就回不来 —— 但 summary 失败时我们需要回退到原始事件
-
-我们的做法:
-- EventLog 保持不变(SDK 自动持久化)
-- 在 state.agent_state["summary_memory"] 存压缩后的摘要
-- 用 hook 在合适时机触发压缩(比如 event 数超过阈值)
-- 后续可以由别的扩展(比如 Memory 注入器)用这个 summary 替换 prompt 里的早期事件
 
 存储结构(state.agent_state["summary_memory"]):
 {
