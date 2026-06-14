@@ -1,6 +1,5 @@
 # ReflexionCritic vs APIBasedCritic 精准对比
 
-> 本文件回答面试常见追问:"OpenHands 不是有 Critic 实现吗,你做的有什么独特?"
 
 ## 1. 维度对比表
 
@@ -58,8 +57,6 @@ def evaluate(self, events, git_patch):
 3. **可观测性**:我的 Critic 输出 lessons,后续可沉淀到长期 memory(SummaryMemory),官方版只有 score 不可复用
 
 ## 5. 已知局限
-
-诚实标注,避免面试翻车:
 
 - ❌ 没有专门训练的 critic 模型,评估质量依赖 base LLM 的指令遵循能力
 - ❌ 通用 LLM 调用比专用 critic 模型慢 2-5x(因为要做 prompt engineering)
