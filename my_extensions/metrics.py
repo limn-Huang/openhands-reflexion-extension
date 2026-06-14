@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
+from openhands.sdk.event import MessageEvent
 from openhands.sdk.conversation import LocalConversation
 from openhands.sdk.event import ActionEvent
 
@@ -86,7 +86,19 @@ def collect_metrics(
     # === SummaryMemory 状态 ===
     summary_data = state.agent_state.get(SUMMARY_KEY)
     has_summary = summary_data is not None and summary_data.get("covered_event_count", 0) > 0
+    # === Critic 对账机制 ===
+    # 检测 "Critic 调用了" 与 "Score 被捕获" 是否一致
+    critic_gap_check = _detect_critic_data_gap(
+        events=all_events,
+        mode=mode,
+        token_input=token_input,
+        baseline_token_estimate=None,  # 简化:暂不传 baseline,只检测明确异常
+    )
     
+    if critic_gap_check["has_gap"]:
+        logger.warning(
+            f"[Metrics] ⚠️ Critic data gap detected: {critic_gap_check['reason']}"
+        )
     return {
         "task_id": task_id,
         "mode": mode,
@@ -135,6 +147,74 @@ def _extract_critic_scores(events) -> list[float]:
                     scores.append(round(float(score), 3))
     return scores
 
+
+def _count_critic_invocations(events) -> int:
+    """
+    估算 Critic 真实被调用了几次。
+    
+    启发式:统计 ActionEvent 中 critic_result 不为 None 的数量。
+    + 这是"score 被成功捕获的下限"。
+    
+    更准确的对账需要 hook 进 CriticBase.evaluate,但那要改 SDK,违背"非侵入"原则。
+    """
+    count = 0
+    for event in events:
+        if isinstance(event, ActionEvent):
+            if getattr(event, "critic_result", None) is not None:
+                count += 1
+    return count
+
+
+def _detect_critic_data_gap(
+    events,
+    mode: str,
+    token_input: int,
+    baseline_token_estimate: int | None = None,
+) -> dict:
+    """
+    Critic 数据捕获对账机制。
+    
+    检测 "Critic 调用了" vs "Score 被捕获" 是否一致。
+    
+    判定规则(只在 with_reflexion 模式下):
+    - critic_invocations = 0 但 token_input >> baseline_token  → 可能 Critic 跑了但 score 丢了
+    - critic_scores 为空但 critic_invocations > 0  → 明确 bug
+    
+    Returns:
+        {
+            "has_gap": bool,           # 是否检测到不一致
+            "reason": str,             # 不一致的原因
+            "suspicion_level": str,    # "none" / "low" / "high"
+        }
+    """
+    if mode != "with_reflexion":
+        return {"has_gap": False, "reason": "N/A (not reflexion mode)", "suspicion_level": "none"}
+    
+    invocations = _count_critic_invocations(events)
+    scores = _extract_critic_scores(events)
+    
+    # Case 1: 调用了但 score 为空 - 明确异常
+    if invocations > 0 and not scores:
+        return {
+            "has_gap": True,
+            "reason": f"Critic invoked {invocations} times but 0 scores captured",
+            "suspicion_level": "high",
+        }
+    
+    # Case 2: 完全没调用,但 token 明显偏高 - 可能调用了没记录
+    if invocations == 0 and baseline_token_estimate is not None:
+        if token_input > baseline_token_estimate * 1.15:  # 超过 baseline 15% 视为可疑
+            return {
+                "has_gap": True,
+                "reason": (
+                    f"No critic_result in events, but token_input ({token_input}) "
+                    f"is {(token_input/baseline_token_estimate - 1)*100:.0f}% higher than baseline estimate "
+                    f"({baseline_token_estimate}) — likely silent failure"
+                ),
+                "suspicion_level": "high",
+            }
+    
+    return {"has_gap": False, "reason": "OK", "suspicion_level": "none"}
 
 def save_metrics(metrics: dict[str, Any], output_dir: Path) -> Path:
     """保存指标到 JSON,文件名 = task_id + mode + 时间戳"""

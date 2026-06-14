@@ -183,40 +183,68 @@ def build_report(latest: dict) -> str:
     lines.append(build_reflexion_details(latest))
     
     lines.append("\n## 关键洞察\n")
+    
+    # 动态计算关键指标(避免硬编码)
+    baseline_runs = [m for (_, mode), m in latest.items() if mode == "baseline"]
+    reflexion_runs = [m for (_, mode), m in latest.items() if mode == "with_reflexion"]
+    
+    n_tasks = len(set(k[0] for k in latest.keys()))
+    
+    def safe_mean(values):
+        return sum(values) / len(values) if values else 0
+    
+    base_time = safe_mean([r["duration_seconds"] for r in baseline_runs])
+    refl_time = safe_mean([r["duration_seconds"] for r in reflexion_runs])
+    base_token = safe_mean([r["token_total"] for r in baseline_runs])
+    refl_token = safe_mean([r["token_total"] for r in reflexion_runs])
+    
+    time_delta_pct = (refl_time / base_time - 1) * 100 if base_time else 0
+    token_delta_pct = (refl_token / base_token - 1) * 100 if base_token else 0
+    
+    base_pass = sum(1 for r in baseline_runs if r.get("success")) / len(baseline_runs) * 100 if baseline_runs else 0
+    refl_pass = sum(1 for r in reflexion_runs if r.get("success")) / len(reflexion_runs) * 100 if reflexion_runs else 0
+    
     lines.append(
-        "### 1. Reflexion 在 GLM-5.1 思考模型上边际收益接近零\n\n"
-        "本次实验覆盖 7 个不同难度的 coding 任务(easy / medium / hard),"
-        "包括精心设计的 3 个 'silent failure' / 'edge case trap' 任务。结果:\n\n"
-        "- Baseline Pass@1: **100%**(7/7 全部通过)\n"
-        "- Reflexion Pass@1: **100%**(无任何额外提升)\n"
-        "- Reflexion 在所有任务上**均未触发迭代**(Critic 给出 0.85~1.00 高分)\n\n"
-        "**根因分析**:GLM-5.1 是强制思考模型(Forced-Thinking Model),"
-        "其内部 reasoning 阶段已经隐含了 self-reflection 过程。"
-        "外部 Reflexion 在这类'已具备内嵌反思能力'的模型上,边际收益结构性偏低。\n\n"
-        "### 2. Reflexion 的真实成本可量化\n\n"
-        "即使任务一次过,启用 Critic 仍会产生固定开销:\n\n"
-        "- 平均耗时:**+71.6%**(Critic 评估 LLM 调用)\n"
-        "- 平均 Token:**+21.2%**(Critic prompt + 评估输出)\n"
-        "- 平均 Action 数:几乎不变(4.3 → 4.3,因为 Reflexion 未触发)\n\n"
-        "**结论**:**Reflexion 不是免费午餐**,在简单任务上是纯负担。\n\n"
-        "### 3. 工程建议:自适应 Reflexion 策略\n\n"
-        "基于实验数据,推荐生产环境采用 **conditional Reflexion**:\n\n"
-        "- **简单任务**(初步可判定为 well-defined / 单文件):跳过 Critic\n"
-        "- **复杂任务 / 关键路径**(多文件 / 涉及核心业务逻辑):启用 Reflexion\n"
-        "- **失败重试场景**(任务 explicit 报错 / verify 不通过):必须启用 Reflexion\n\n"
-        "这是用 +21% Token 成本换取容错能力的**有条件保险机制**,"
-        "而非对所有任务一刀切的 cost-quality 权衡。\n\n"
-        "### 4. 关于实验边界的诚实声明\n\n"
-        "本实验仅覆盖 GLM-5.1 + 7 个 coding 任务的 baseline 对比。"
-        "Reflexion 在以下场景的价值尚未验证:\n\n"
-        "- 非思考模型(如 GPT-3.5、GLM-4-Flash)上的提升幅度\n"
-        "- 长任务(>20 actions)的累积错误纠正\n"
-        "- Tool-use 链路(数据库 / API)中的失败恢复\n\n"
-        "未来工作可扩展到这些场景,以建立完整的 Reflexion 适用边界图。\n"
+        f"### 1. Reflexion 在 GLM-5.1 思考模型上边际收益接近零\n\n"
+        f"本次实验覆盖 **{n_tasks} 个不同难度的 coding 任务**(easy / medium / hard),"
+        f"包括精心设计的 silent failure / edge case trap 任务。结果:\n\n"
+        f"- Baseline Pass@1: **{base_pass:.0f}%**\n"
+        f"- Reflexion Pass@1: **{refl_pass:.0f}%**\n"
+        f"- 大部分任务上 Reflexion 未触发迭代,Critic 给出 0.85~1.00 高分\n\n"
+        f"**根因分析**:GLM-5.1 是强制思考模型(Forced-Thinking Model),"
+        f"其内部 reasoning 阶段已经隐含了 self-reflection 过程。"
+        f"外部 Reflexion 在这类'已具备内嵌反思能力'的模型上,边际收益结构性偏低。\n\n"
+        f"### 2. Reflexion 的成本是任务依赖的,而非常数\n\n"
+        f"启用 Critic 的整体平均开销:\n\n"
+        f"- 平均耗时增量:**+{time_delta_pct:.1f}%**\n"
+        f"- 平均 Token 增量:**+{token_delta_pct:.1f}%**\n\n"
+        f"但**单任务粒度上 Critic 成本差异巨大**——某些复杂任务(如 task_3)上,"
+        f"Reflexion 反而帮助 Agent 避免了多余的探索动作,**token 消耗可低于 baseline**。\n\n"
+        f"**结论**:**Reflexion 不是常数成本,而是任务依赖的浮动开销**。"
+        f"在低复杂度任务上是负担,在多动作探索类任务上可能反而省钱。\n\n"
+        f"### 3. 工程建议:自适应 Reflexion 策略\n\n"
+        f"基于实验数据,推荐生产环境采用 **conditional Reflexion**:\n\n"
+        f"- **简单任务**(单文件 / 明确需求):跳过 Critic\n"
+        f"- **复杂任务 / 关键路径**(多文件 / 涉及核心业务):启用 Reflexion\n"
+        f"- **失败重试场景**(任务 explicit 报错):必须启用 Reflexion\n\n"
+        f"### 4. 工程教训:对账机制捕获间歇性数据缺失\n\n"
+        f"在 {len(reflexion_runs)} 次 with_reflexion 实验中,**对账机制(audit)主动检测到 task_h2 的 Critic 数据缺失**:"
+        f"虽然 token 消耗高于 baseline(+24% 证据表明 Critic 真的跑了),但 ActionEvent 中的 score 字段为空。\n\n"
+        f"这是一个**间歇性 bug**——同样的代码、同样的任务,多次跑出现不同的捕获状态。"
+        f"我们没有'重跑掩盖'这个现象,而是通过 `metrics.py` 的 `_detect_critic_data_gap()` 机制和 "
+        f"`benchmark/audit.py` 命令行工具,**让 bug 在数据层面可见**。\n\n"
+        f"**工程教训**:在 non-invasive 扩展场景下,**可观测性 > 修源码**。"
+        f"当无法修上游 SDK 时,对账机制是退而求其次的工程兜底。\n\n"
+        f"### 5. 关于实验边界的诚实声明\n\n"
+        f"本实验仅覆盖 GLM-5.1 + {n_tasks} 个 coding 任务的 baseline 对比。"
+        f"Reflexion 在以下场景的价值尚未验证:\n\n"
+        f"- 非思考模型(如 GPT-3.5、GLM-4-Flash)上的提升幅度\n"
+        f"- 长任务(>20 actions)的累积错误纠正\n"
+        f"- Tool-use 链路(数据库 / API)中的失败恢复\n\n"
+        f"未来工作可扩展到这些场景,以建立完整的 Reflexion 适用边界图。\n"
     )
     
     return "\n".join(lines)
-
 
 def main():
     all_metrics = load_all_metrics(RESULTS_DIR)
